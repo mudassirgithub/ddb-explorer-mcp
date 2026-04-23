@@ -1,0 +1,60 @@
+# Smithery registry configuration — https://smithery.ai/docs
+#
+# This file lets Smithery list, install, and (optionally) host the server.
+# The server can be installed into any MCP client via:
+#
+#   npx -y @smithery/cli install ddb-explorer-mcp --client cursor
+#   npx -y @smithery/cli install ddb-explorer-mcp --client claude
+#   npx -y @smithery/cli install ddb-explorer-mcp --client vscode
+#
+# For hosted mode (Smithery runs the server in their infrastructure), Smithery
+# builds the Dockerfile at the repo root and boots it with MCP_TRANSPORT=http.
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    title: AWS configuration
+    required: []
+    properties:
+      awsRegion:
+        type: string
+        title: AWS region
+        description: DynamoDB region to connect to.
+        default: us-east-2
+      awsProfile:
+        type: string
+        title: AWS profile (optional)
+        description: Named profile from ~/.aws/credentials. Leave blank to use the default credential chain (env vars / SSO / IAM role).
+      awsAccessKeyId:
+        type: string
+        title: AWS Access Key ID (optional)
+        description: Explicit access key. Prefer awsProfile or an IAM role when possible.
+      awsSecretAccessKey:
+        type: string
+        title: AWS Secret Access Key (optional)
+        description: Explicit secret key.
+        format: password
+      awsSessionToken:
+        type: string
+        title: AWS Session Token (optional)
+        description: Temporary session token (STS / SSO).
+        format: password
+  commandFunction: |-
+    (config) => ({
+      command: "uvx",
+      args: ["ddb-explorer-mcp"],
+      env: Object.fromEntries(
+        Object.entries({
+          AWS_REGION: config.awsRegion,
+          AWS_PROFILE: config.awsProfile,
+          AWS_ACCESS_KEY_ID: config.awsAccessKeyId,
+          AWS_SECRET_ACCESS_KEY: config.awsSecretAccessKey,
+          AWS_SESSION_TOKEN: config.awsSessionToken,
+        }).filter(([, v]) => v !== undefined && v !== null && v !== "")
+      ),
+    })
+
+build:
+  dockerfile: Dockerfile
+  dockerBuildPath: .

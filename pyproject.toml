@@ -1,0 +1,120 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ddb-explorer-mcp"
+version = "0.1.0"
+description = "Read-only Model Context Protocol (MCP) server for Amazon DynamoDB — safe exploration, querying, and schema discovery."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "dynamodb",
+    "aws",
+    "claude",
+    "cursor",
+    "llm",
+    "agent",
+    "readonly",
+]
+authors = [
+    { name = "Mudassir Ahmed" },
+]
+maintainers = [
+    { name = "Mudassir Ahmed" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
+]
+dependencies = [
+    "mcp>=1.9.0",
+    "boto3>=1.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "moto[dynamodb]>=5.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+ddb-explorer-mcp = "ddb_explorer_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/mudassirgithub/ddb-explorer-mcp"
+Repository = "https://github.com/mudassirgithub/ddb-explorer-mcp"
+Issues = "https://github.com/mudassirgithub/ddb-explorer-mcp/issues"
+Changelog = "https://github.com/mudassirgithub/ddb-explorer-mcp/blob/main/CHANGELOG.md"
+Discussions = "https://github.com/mudassirgithub/ddb-explorer-mcp/discussions"
+"Docker Image" = "https://github.com/mudassirgithub/ddb-explorer-mcp/pkgs/container/ddb-explorer-mcp"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ddb_explorer_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/pyproject.toml",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "N",   # pep8-naming
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # function calls in defaults (needed for FastMCP)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["N802", "N803"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = [
+    "ignore::DeprecationWarning:botocore.*",
+]

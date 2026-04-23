@@ -1,0 +1,185 @@
+name: Release
+
+# Publishes a release when a semver tag is pushed (e.g. v0.2.0):
+#   - Builds wheel + sdist with uv
+#   - Publishes to PyPI via Trusted Publishing (OIDC — no tokens required)
+#   - Builds multi-arch Docker image (linux/amd64, linux/arm64), pushes to GHCR
+#   - Creates a GitHub Release with auto-generated notes and attaches artifacts
+#
+# Prerequisites (one-time repo setup):
+#   1. On PyPI, configure Trusted Publisher for project `ddb-explorer-mcp`:
+#        owner:     mudassirgithub
+#        repo:      ddb-explorer-mcp
+#        workflow:  release.yml
+#        environment: pypi
+#      https://docs.pypi.org/trusted-publishers/
+#   2. Create a GitHub Environment named `pypi` (used by the publish job).
+#   3. Enable GHCR write access for Actions (Settings → Actions → General →
+#      Workflow permissions: "Read and write permissions").
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.2.0). Must already exist."
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build wheel + sdist
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          ref="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${ref#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Releasing version: ${version}"
+
+      - name: Verify pyproject version matches tag
+        run: |
+          expected="${{ steps.version.outputs.version }}"
+          actual=$(uv run python -c "import tomllib,sys; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::Tag version ($expected) does not match pyproject.toml version ($actual)"
+            exit 1
+          fi
+
+      - name: Build
+        run: uv build
+
+      - name: Upload dist/
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ddb-explorer-mcp
+    permissions:
+      id-token: write  # required for Trusted Publishing (OIDC)
+    steps:
+      - name: Download dist/
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          print-hash: true
+
+  publish-docker:
+    name: Publish Docker image to GHCR
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=ddb-explorer-mcp
+            org.opencontainers.image.description=Read-only MCP server for Amazon DynamoDB
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - name: Build & push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  github-release:
+    name: Create GitHub Release
+    needs: [build, publish-pypi, publish-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download dist/
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          files: |
+            dist/*.whl
+            dist/*.tar.gz

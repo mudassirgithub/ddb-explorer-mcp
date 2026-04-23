@@ -1,0 +1,106 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/draft/2025-07-09/server.schema.json",
+  "name": "io.github.mudassirgithub/ddb-explorer-mcp",
+  "description": "Read-only Model Context Protocol (MCP) server for Amazon DynamoDB — safe exploration, querying, and schema discovery. Write operations are structurally not exposed.",
+  "repository": {
+    "url": "https://github.com/mudassirgithub/ddb-explorer-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registry_name": "pypi",
+      "name": "ddb-explorer-mcp",
+      "version": "0.1.0",
+      "runtime_hint": "uvx",
+      "package_arguments": [],
+      "environment_variables": [
+        {
+          "name": "AWS_REGION",
+          "description": "DynamoDB region (defaults to us-east-2).",
+          "is_required": false,
+          "is_secret": false,
+          "default": "us-east-2"
+        },
+        {
+          "name": "AWS_PROFILE",
+          "description": "Named AWS profile from ~/.aws/credentials or ~/.aws/config.",
+          "is_required": false,
+          "is_secret": false
+        },
+        {
+          "name": "AWS_ACCESS_KEY_ID",
+          "description": "Explicit AWS access key ID (prefer AWS_PROFILE or an IAM role).",
+          "is_required": false,
+          "is_secret": true
+        },
+        {
+          "name": "AWS_SECRET_ACCESS_KEY",
+          "description": "Explicit AWS secret access key.",
+          "is_required": false,
+          "is_secret": true
+        },
+        {
+          "name": "AWS_SESSION_TOKEN",
+          "description": "Temporary session token (when using STS / SSO).",
+          "is_required": false,
+          "is_secret": true
+        },
+        {
+          "name": "MCP_TRANSPORT",
+          "description": "Transport: 'stdio' (default), 'http' (streamable-HTTP), or 'sse'.",
+          "is_required": false,
+          "is_secret": false,
+          "default": "stdio"
+        },
+        {
+          "name": "MCP_HOST",
+          "description": "HTTP bind host (use 0.0.0.0 to expose externally).",
+          "is_required": false,
+          "is_secret": false,
+          "default": "127.0.0.1"
+        },
+        {
+          "name": "MCP_PORT",
+          "description": "HTTP bind port.",
+          "is_required": false,
+          "is_secret": false,
+          "default": "8765"
+        }
+      ]
+    },
+    {
+      "registry_name": "docker",
+      "name": "ghcr.io/mudassirgithub/ddb-explorer-mcp",
+      "version": "0.1.0",
+      "runtime_hint": "docker",
+      "package_arguments": [
+        {
+          "description": "Publish streamable-HTTP port.",
+          "type": "positional",
+          "value": "-p 8765:8765"
+        }
+      ],
+      "environment_variables": [
+        {
+          "name": "MCP_TRANSPORT",
+          "description": "Set to 'http' for streamable-HTTP inside the container.",
+          "is_required": false,
+          "default": "http"
+        },
+        {
+          "name": "MCP_HOST",
+          "description": "Bind host inside the container (0.0.0.0 to expose).",
+          "is_required": false,
+          "default": "0.0.0.0"
+        },
+        {
+          "name": "AWS_REGION",
+          "description": "DynamoDB region.",
+          "is_required": false,
+          "default": "us-east-2"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+name: Bug report
+description: Something is broken or behaving unexpectedly.
+title: "[bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill out as much
+        as you can — especially the reproduction steps.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A short description of the bug.
+      placeholder: "`describe_table` returns an empty `key_schema` for table X"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps and, if possible, the MCP tool call / prompt that triggered it.
+      placeholder: |
+        1. Configure Cursor with `uvx ddb-explorer-mcp` and AWS_REGION=us-east-2
+        2. Prompt: "describe my orders table"
+        3. Observe: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior (include full error output)
+      description: Paste stderr / tool response. Please **redact any AWS account IDs, ARNs, or data**.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - stdio
+        - http (streamable-HTTP)
+        - sse
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: MCP client + version
+      placeholder: "Cursor 0.45.0 / Claude Desktop 0.8.2 / VS Code 1.95 + Cline 3.0"
+    validations:
+      required: true
+
+  - type: input
+    id: install
+    attributes:
+      label: How did you install the server?
+      placeholder: "uvx / pip / docker (tag v0.1.0)"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version (if installed via uvx/pip)
+      placeholder: "3.12.6"
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 14.6 arm64 / Ubuntu 24.04 / Windows 11"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I have redacted any sensitive information from my output.
+          required: true

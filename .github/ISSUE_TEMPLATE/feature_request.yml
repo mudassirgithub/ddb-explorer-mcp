@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new tool, flag, or capability.
+title: "[feat]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Note:** this server is **read-only by design.** Proposals to add
+        write-side tools (`PutItem`, `UpdateItem`, `DeleteItem`,
+        `BatchWriteItem`, `TransactWriteItems`, `CreateTable`, `DeleteTable`,
+        `UpdateTable`) will be closed. The structural absence of those tools
+        is the safety model of this project — please open a discussion first
+        if you want to argue this point.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to accomplish that is hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What tool / flag / env var / behavior would you add? Be specific.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: readonly
+    attributes:
+      label: Confirmation
+      options:
+        - label: My proposal does not add or facilitate any DynamoDB write operation.
+          required: true

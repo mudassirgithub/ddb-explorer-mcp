@@ -1,0 +1,52 @@
+name: Publish npm wrapper
+
+# Publishes the thin npm wrapper (npm/package.json) to npmjs.com.
+# Triggered alongside the main release workflow when a semver tag is pushed.
+#
+# Prerequisites:
+#   1. Create an npm access token (Automation type) for @mudassirgithub scope.
+#   2. Store it as repo secret: NPM_TOKEN
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: npm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Sync version from tag
+        run: |
+          ref="${GITHUB_REF_NAME}"
+          version="${ref#v}"
+          npm version "${version}" --no-git-tag-version --allow-same-version
+
+      - name: Copy LICENSE from root
+        run: cp ../LICENSE ./LICENSE
+
+      - name: Publish
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

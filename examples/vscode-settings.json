@@ -1,0 +1,14 @@
+{
+  "mcp": {
+    "servers": {
+      "ddb-explorer": {
+        "command": "uvx",
+        "args": ["ddb-explorer-mcp"],
+        "env": {
+          "AWS_PROFILE": "default",
+          "AWS_REGION": "us-east-2"
+        }
+      }
+    }
+  }
+}

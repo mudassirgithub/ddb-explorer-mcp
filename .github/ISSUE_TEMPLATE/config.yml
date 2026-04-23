@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/mudassirgithub/ddb-explorer-mcp/blob/main/SECURITY.md
+    about: Please do NOT open a public issue. See SECURITY.md for private disclosure.
+  - name: Question or discussion
+    url: https://github.com/mudassirgithub/ddb-explorer-mcp/discussions
+    about: Ask a question, share a use case, or discuss ideas.

@@ -1,0 +1,34 @@
+{
+  "name": "ddb-explorer-mcp",
+  "version": "0.1.0",
+  "description": "Read-only MCP server for Amazon DynamoDB — safe exploration, querying, and schema discovery. Thin npm wrapper that delegates to the Python package via uvx.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "dynamodb",
+    "aws",
+    "claude",
+    "cursor",
+    "llm",
+    "agent",
+    "readonly"
+  ],
+  "homepage": "https://github.com/mudassirgithub/ddb-explorer-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mudassirgithub/ddb-explorer-mcp.git"
+  },
+  "license": "Apache-2.0",
+  "author": "Mudassir Ahmed",
+  "bin": {
+    "ddb-explorer-mcp": "./run.js"
+  },
+  "files": [
+    "run.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

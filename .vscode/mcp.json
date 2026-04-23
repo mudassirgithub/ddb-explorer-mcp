@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "ddb-explorer": {
+      "command": "uv",
+      "args": ["run", "--directory", "${workspaceFolder}", "ddb-explorer-mcp"],
+      "env": {
+        "AWS_PROFILE": "default",
+        "AWS_REGION": "us-east-2"
+      }
+    }
+  }
+}

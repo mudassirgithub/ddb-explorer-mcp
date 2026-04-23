@@ -1,0 +1,11 @@
+{
+  "name": "ddb-explorer-mcp",
+  "description": "Read-only MCP server for Amazon DynamoDB — safe exploration, querying, and schema discovery.",
+  "url": "/mcp",
+  "transport": "streamable-http",
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  }
+}

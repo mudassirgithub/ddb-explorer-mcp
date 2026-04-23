@@ -1,0 +1,24 @@
+# Hosted HTTP-mode deployment of ddb-explorer-mcp.
+#
+# Start:   docker compose up -d
+# Connect: MCP client → http://localhost:8765/mcp
+
+services:
+  ddb-explorer:
+    image: ghcr.io/mudassirgithub/ddb-explorer-mcp:latest
+    ports:
+      - "8765:8765"
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8765"
+      AWS_REGION: us-east-2
+      # Provide credentials via env vars or mount ~/.aws instead:
+      # AWS_ACCESS_KEY_ID: "..."
+      # AWS_SECRET_ACCESS_KEY: "..."
+    # volumes:
+    #   - ~/.aws:/app/.aws:ro     # alternative: mount shared AWS config
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

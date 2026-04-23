@@ -1,0 +1,61 @@
+name: Docker (edge)
+
+# Builds and pushes a rolling `edge` image from main. This lets users pin to
+# `ghcr.io/<owner>/ddb-explorer-mcp:edge` if they want the latest tested-but-
+# unreleased build. Versioned images are produced by release.yml on tag pushes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "pyproject.toml"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/docker-edge.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docker-edge-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  edge:
+    name: Build & push edge image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:edge
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=ddb-explorer-mcp
+            org.opencontainers.image.description=Read-only MCP server for Amazon DynamoDB (edge build)
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
