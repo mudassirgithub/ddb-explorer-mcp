@@ -60,9 +60,7 @@ AUDIT_LOG = os.environ.get("DDB_AUDIT_LOG", "").strip().lower() in ("true", "1",
 
 _ALLOWED_TABLES_RAW = os.environ.get("DDB_ALLOWED_TABLES", "").strip()
 ALLOWED_TABLE_PATTERNS: list[str] = (
-    [p.strip() for p in _ALLOWED_TABLES_RAW.split(",") if p.strip()]
-    if _ALLOWED_TABLES_RAW
-    else []
+    [p.strip() for p in _ALLOWED_TABLES_RAW.split(",") if p.strip()] if _ALLOWED_TABLES_RAW else []
 )
 
 MAX_RESPONSE_BYTES = _env_int("DDB_MAX_RESPONSE_BYTES", 0)
@@ -149,8 +147,7 @@ def _check_rate_limit() -> dict | None:
                 "error": True,
                 "code": "RateLimitExceeded",
                 "message": (
-                    f"Rate limit of {MAX_CALLS_PER_MINUTE} calls/minute exceeded. "
-                    "Wait and retry."
+                    f"Rate limit of {MAX_CALLS_PER_MINUTE} calls/minute exceeded. Wait and retry."
                 ),
             }
         _call_timestamps.append(now)
@@ -167,8 +164,7 @@ def _check_table_allowed(table_name: str) -> dict | None:
         "error": True,
         "code": "TableNotAllowed",
         "message": (
-            f"Table '{table_name}' is not in the allowed list. "
-            f"Allowed: {ALLOWED_TABLE_PATTERNS}"
+            f"Table '{table_name}' is not in the allowed list. Allowed: {ALLOWED_TABLE_PATTERNS}"
         ),
     }
 
@@ -230,8 +226,7 @@ def _check_response_size(result: dict) -> dict:
     result["items"] = items
     result["truncated"] = True
     result["truncated_message"] = (
-        f"Response exceeded {MAX_RESPONSE_BYTES} bytes. "
-        f"Items truncated to {len(items)}."
+        f"Response exceeded {MAX_RESPONSE_BYTES} bytes. Items truncated to {len(items)}."
     )
     if "count" in result:
         result["count"] = len(items)
@@ -259,9 +254,7 @@ def list_tables(name_contains: str = "") -> dict:
             names = [n for n in names if q in n.lower()]
         if ALLOWED_TABLE_PATTERNS:
             names = [
-                n
-                for n in names
-                if any(fnmatch.fnmatch(n, pat) for pat in ALLOWED_TABLE_PATTERNS)
+                n for n in names if any(fnmatch.fnmatch(n, pat) for pat in ALLOWED_TABLE_PATTERNS)
             ]
         _audit("list_tables")
         return {"region": REGION, "count": len(names), "tables": names}
@@ -477,7 +470,8 @@ def batch_get_item(
             retries = 0
             while req:
                 resp = _resource.batch_get_item(
-                    RequestItems=req, **_RCC_KWARGS,
+                    RequestItems=req,
+                    **_RCC_KWARGS,
                 )
                 all_items.extend(resp.get("Responses", {}).get(table_name, []))
                 for cc in resp.get("ConsumedCapacity") or []:
