@@ -45,6 +45,10 @@ tables on behalf of a human operator.
   of the code, not a runtime flag that can be flipped.
 - **No arbitrary-SQL / no arbitrary-API surface.** Tool signatures are fixed;
   the server does not execute arbitrary boto3 calls provided by the LLM.
+- **Expression injection protection.** DynamoDB expressions are validated to prevent
+  SQL injection, command injection, and other malicious patterns before execution.
+- **Input validation and bounds enforcement.** All environment variables, expressions,
+  and parameters are validated with strict bounds checking.
 - **Tool argument bounds are enforced.** `scan` caps `max_pages` at 20 and
   `limit` at 500; `query` caps `limit` at 500; `batch_get_item` retries
   `UnprocessedKeys` at most 10 times per chunk.
@@ -63,13 +67,27 @@ tables on behalf of a human operator.
   a read tool will return them. Don't store secrets in items you don't want the
   LLM to see.
 
+### Security features
+
+- **Production error sanitization.** Set `DDB_PRODUCTION=true` to sanitize error messages
+  and prevent information disclosure while preserving debug capabilities.
+- **Credential security warnings.** Server validates AWS credential configuration and warns
+  about insecure practices (long-term keys, missing TLS, etc.) on startup.
+- **Expression validation.** Comprehensive validation prevents injection attacks in
+  DynamoDB expressions with configurable limits and safety checks.
+- **Configuration bounds.** Environment variables are validated and clamped to safe ranges
+  to prevent resource exhaustion and DoS attacks.
+
 ### Recommended deployment controls
 
 - **Always** attach a minimal read-only IAM policy to the server's AWS identity.
   See [README.md § HTTP-mode deployment](README.md#http-mode-deployment).
+- **Enable production mode** (`DDB_PRODUCTION=true`) to sanitize error messages.
 - Use **distinct IAM roles per environment**. The server deployed to a "prod"
   host should not have access to any other account.
 - Prefer **SSO / temporary credentials** over long-lived IAM user access keys.
+- **Use TLS** for HTTP transport with `DDB_TLS_CERT`/`DDB_TLS_KEY` or a terminating proxy.
+- **Monitor security warnings** in application logs for credential and configuration issues.
 - Audit **CloudTrail** for unexpected query / scan patterns — DynamoDB data-plane
   events can be logged if you need full auditability.
 

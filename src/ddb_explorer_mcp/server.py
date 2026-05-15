@@ -13,11 +13,13 @@ import decimal
 import fnmatch
 import json
 import os
+import re
 import sys
 import threading
 import time
+import warnings
 from collections import deque
-from typing import Any
+from typing import Any, Optional
 
 import boto3
 from boto3.dynamodb.types import TypeDeserializer
@@ -28,14 +30,47 @@ from mcp.server.fastmcp import FastMCP
 REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-2"
 
 
+# Security: Environment variable bounds for safe configuration
+_ENV_INT_BOUNDS = {
+    "DDB_SAMPLE_MAX_N": (1, 100),
+    "DDB_QUERY_DEFAULT_LIMIT": (1, 500),
+    "DDB_QUERY_MAX_LIMIT": (1, 1000),
+    "DDB_SCAN_DEFAULT_LIMIT": (1, 500),
+    "DDB_SCAN_MAX_LIMIT": (1, 1000),
+    "DDB_SCAN_DEFAULT_MAX_PAGES": (1, 50),
+    "DDB_SCAN_MAX_PAGES": (1, 100),
+    "DDB_BATCH_CHUNK_SIZE": (1, 100),
+    "DDB_BATCH_MAX_RETRIES": (1, 20),
+    "DDB_MAX_ITEMS_PER_SESSION": (1, 100000),
+    "DDB_MAX_CALLS_PER_MINUTE": (1, 1000),
+    "DDB_MAX_RESPONSE_BYTES": (0, 10 * 1024 * 1024),  # 10MB max
+    "DDB_READ_TIMEOUT": (1, 60),
+    "MCP_PORT": (1024, 65535),
+}
+
+
 def _env_int(name: str, default: int) -> int:
+    """Parse integer from environment with bounds validation for security."""
     raw = os.environ.get(name)
     if not raw:
         return default
     try:
-        return int(raw)
+        value = int(raw)
     except ValueError:
+        warnings.warn(f"Invalid integer value for {name}: {raw}, using default: {default}")
         return default
+    
+    # Apply security bounds if defined
+    if name in _ENV_INT_BOUNDS:
+        min_val, max_val = _ENV_INT_BOUNDS[name]
+        if value < min_val or value > max_val:
+            warnings.warn(
+                f"Security: {name}={value} outside safe bounds [{min_val}, {max_val}], "
+                f"clamping to range"
+            )
+            return max(min_val, min(value, max_val))
+    
+    return value
 
 
 TRANSPORT = os.environ.get("MCP_TRANSPORT", "stdio").strip().lower()
@@ -97,16 +132,55 @@ def _jsonify(obj: Any) -> Any:
     return obj
 
 
+# Security: Production mode for error sanitization
+def _is_production_mode() -> bool:
+    """Check if production mode is enabled (dynamic for testing)."""
+    return os.environ.get("DDB_PRODUCTION", "").lower() in ("true", "1", "yes")
+
+# Security: Sanitized error messages for production
+_SANITIZED_ERROR_MESSAGES = {
+    "ResourceNotFoundException": "Resource not found",
+    "ValidationException": "Invalid request parameters",
+    "ProvisionedThroughputExceededException": "Request rate exceeded",
+    "ResourceInUseException": "Resource busy",
+    "ItemCollectionSizeLimitExceededException": "Item collection limit exceeded",
+    "TransactionCanceledException": "Transaction cancelled",
+    "RequestLimitExceeded": "Request limit exceeded",
+    "InternalServerError": "Internal server error",
+    "ServiceUnavailable": "Service temporarily unavailable",
+    "AccessDeniedException": "Access denied",
+    "UnrecognizedClientException": "Authentication error",
+    "InvalidSignatureException": "Authentication error",
+    "TokenRefreshRequired": "Authentication error",
+}
+
+
 def _err(e: Exception) -> dict:
-    """Return a structured error so the LLM can read and react, not crash."""
+    """Return a structured error, sanitized in production mode to prevent info disclosure."""
     if isinstance(e, ClientError):
         err = e.response.get("Error", {})
+        code = err.get("Code", "ClientError")
+        message = err.get("Message", str(e))
+    else:
+        code = type(e).__name__
+        message = str(e)
+    
+    # In production, sanitize error messages to prevent information disclosure
+    if _is_production_mode():
+        # Log full error for debugging (to stderr)
+        if os.environ.get("DDB_DEBUG_ERRORS"):
+            print(f"[ddb-security] Original error: code={code}, message={message}", 
+                  file=sys.stderr, flush=True)
+        
+        # Return sanitized error
         return {
             "error": True,
-            "code": err.get("Code", "ClientError"),
-            "message": err.get("Message", str(e)),
+            "code": code if code in _SANITIZED_ERROR_MESSAGES else "RequestError",
+            "message": _SANITIZED_ERROR_MESSAGES.get(code, "Request could not be processed")
         }
-    return {"error": True, "code": type(e).__name__, "message": str(e)}
+    
+    # In development, return full error details
+    return {"error": True, "code": code, "message": message}
 
 
 _RCC_KWARGS: dict = {"ReturnConsumedCapacity": "TOTAL"} if SHOW_COST else {}
@@ -130,6 +204,15 @@ def _consumed_capacity(resp: dict) -> dict | None:
 # Security guards: rate limit, table allowlist, session item cap, audit log
 # ---------------------------------------------------------------------------
 
+# Security: Expression validation patterns
+_VALID_ATTRIBUTE_NAME = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+_VALID_EXPRESSION_PLACEHOLDER = re.compile(r'^:[a-zA-Z_][a-zA-Z0-9_]*$')
+_VALID_ATTRIBUTE_PLACEHOLDER = re.compile(r'^#[a-zA-Z_][a-zA-Z0-9_]*$')
+
+# Security: SQL injection keywords to block
+_SQL_KEYWORDS = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE', 'EXEC', 'UNION']
+_DANGEROUS_CHARS = [';', '&&', '||', '|', '`', '$', '\n', '\r']
+
 _guard_lock = threading.Lock()
 _call_timestamps: deque[float] = deque()
 
@@ -151,6 +234,97 @@ def _check_rate_limit() -> dict | None:
                 ),
             }
         _call_timestamps.append(now)
+    return None
+
+
+def _validate_expression(expression: str, expression_type: str = "condition") -> dict | None:
+    """Validate DynamoDB expression for dangerous patterns to prevent injection attacks.
+    
+    Returns error dict if validation fails, None if valid.
+    """
+    if not expression:
+        return None
+    
+    # Check for SQL injection attempts
+    expr_upper = expression.upper()
+    for keyword in _SQL_KEYWORDS:
+        if keyword in expr_upper:
+            return {
+                "error": True,
+                "code": "ValidationException",
+                "message": f"Expression contains prohibited keyword: {keyword}"
+            }
+    
+    # Check for command injection attempts
+    for char in _DANGEROUS_CHARS:
+        if char in expression:
+            return {
+                "error": True,
+                "code": "ValidationException",
+                "message": f"Expression contains prohibited character: {repr(char)}"
+            }
+    
+    # Limit expression length to prevent DoS
+    if len(expression) > 4096:
+        return {
+            "error": True,
+            "code": "ValidationException",
+            "message": f"Expression too long ({len(expression)} > 4096 characters)"
+        }
+    
+    # Basic bracket balance check
+    if expression.count('(') != expression.count(')'):
+        return {
+            "error": True,
+            "code": "ValidationException",
+            "message": "Unbalanced parentheses in expression"
+        }
+    
+    return None
+
+
+def _validate_expression_attributes(
+    names: Optional[dict[str, str]] = None,
+    values: Optional[dict[str, Any]] = None
+) -> dict | None:
+    """Validate expression attribute names and values for security.
+    
+    Returns error dict if validation fails, None if valid.
+    """
+    if names:
+        for placeholder, actual in names.items():
+            if not _VALID_ATTRIBUTE_PLACEHOLDER.match(placeholder):
+                return {
+                    "error": True,
+                    "code": "ValidationException",
+                    "message": f"Invalid attribute name placeholder: {placeholder}"
+                }
+            # Allow dotted notation for nested attributes
+            parts = actual.split('.')
+            for part in parts:
+                if part and not _VALID_ATTRIBUTE_NAME.match(part):
+                    return {
+                        "error": True,
+                        "code": "ValidationException",
+                        "message": f"Invalid attribute name: {actual}"
+                    }
+    
+    if values:
+        for placeholder, value in values.items():
+            if not _VALID_EXPRESSION_PLACEHOLDER.match(placeholder):
+                return {
+                    "error": True,
+                    "code": "ValidationException",
+                    "message": f"Invalid value placeholder: {placeholder}"
+                }
+            # Limit value size to prevent memory issues (DynamoDB limit is 400KB)
+            if isinstance(value, str) and len(value) > 400_000:
+                return {
+                    "error": True,
+                    "code": "ValidationException",
+                    "message": f"Value for {placeholder} exceeds size limit"
+                }
+    
     return None
 
 
@@ -531,6 +705,26 @@ def query(
     ta = _check_table_allowed(table_name)
     if ta:
         return ta
+    
+    # Security: Validate expressions to prevent injection
+    expr_err = _validate_expression(key_condition_expression, "key_condition")
+    if expr_err:
+        return expr_err
+    
+    if filter_expression:
+        filter_err = _validate_expression(filter_expression, "filter")
+        if filter_err:
+            return filter_err
+    
+    if projection_expression:
+        proj_err = _validate_expression(projection_expression, "projection")
+        if proj_err:
+            return proj_err
+    
+    attr_err = _validate_expression_attributes(expression_attribute_names, expression_attribute_values)
+    if attr_err:
+        return attr_err
+    
     limit = max(1, min(int(limit), QUERY_MAX_LIMIT))
     try:
         table = _resource.Table(table_name)
@@ -598,6 +792,22 @@ def scan(
     ta = _check_table_allowed(table_name)
     if ta:
         return ta
+    
+    # Security: Validate expressions to prevent injection
+    if filter_expression:
+        filter_err = _validate_expression(filter_expression, "filter")
+        if filter_err:
+            return filter_err
+    
+    if projection_expression:
+        proj_err = _validate_expression(projection_expression, "projection")
+        if proj_err:
+            return proj_err
+    
+    attr_err = _validate_expression_attributes(expression_attribute_names, expression_attribute_values)
+    if attr_err:
+        return attr_err
+    
     limit = max(1, min(int(limit), SCAN_MAX_LIMIT))
     max_pages = max(1, min(int(max_pages), SCAN_MAX_PAGES))
     try:
@@ -654,8 +864,47 @@ def scan(
         return _err(e)
 
 
+def _check_credential_security() -> None:
+    """Check AWS credential configuration for security issues and warn."""
+    warnings_list = []
+    
+    # Check for hardcoded credentials
+    if os.environ.get("AWS_ACCESS_KEY_ID"):
+        key_id = os.environ.get("AWS_ACCESS_KEY_ID", "")
+        if key_id.startswith("AKIA"):
+            warnings_list.append(
+                "Using long-term AWS access key. Consider using temporary credentials (STS/SSO) instead."
+            )
+        warnings_list.append(
+            "AWS_ACCESS_KEY_ID in environment. Consider using IAM roles or AWS_PROFILE instead."
+        )
+    
+    # Warn about HTTP mode without auth and TLS
+    transport = os.environ.get("MCP_TRANSPORT", "stdio").lower()
+    if transport in ("http", "streamable-http", "sse"):
+        warnings_list.append(
+            f"Running in {transport.upper()} mode without built-in authentication. "
+            "CRITICAL: Use a reverse proxy with authentication in production!"
+        )
+        
+        # Check if TLS is configured
+        if not os.environ.get("DDB_TLS_CERT") and not os.environ.get("DDB_REQUIRE_TLS"):
+            warnings_list.append(
+                "No TLS configuration detected. Data will be transmitted in plaintext. "
+                "Set DDB_TLS_CERT/DDB_TLS_KEY or use a TLS-terminating proxy."
+            )
+    
+    # Print warnings
+    for warning in warnings_list:
+        warnings.warn(f"[SECURITY] {warning}", stacklevel=2)
+        print(f"[ddb-explorer] WARNING: {warning}", file=sys.stderr, flush=True)
+
+
 def main() -> None:
     """Entry point. Dispatches to the transport selected by MCP_TRANSPORT."""
+    # Security check on startup
+    _check_credential_security()
+    
     if TRANSPORT == "stdio":
         mcp.run()
         return
