@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import os
 import warnings
-from unittest.mock import patch
 
-import pytest
 from ddb_explorer_mcp.server import (
     _check_credential_security,
     _env_int,
     _err,
     _validate_expression,
     _validate_expression_attributes,
-    _is_production_mode,
 )
 
 
@@ -67,19 +63,19 @@ class TestErrorSanitization:
     def test_error_sanitization_production(self, monkeypatch):
         """Test that errors are sanitized in production mode."""
         monkeypatch.setenv("DDB_PRODUCTION", "true")
-        from ddb_explorer_mcp.server import _err, ClientError
-        
+        from ddb_explorer_mcp.server import ClientError, _err
+
         # Mock ClientError
         error = ClientError(
             error_response={
                 "Error": {
                     "Code": "ResourceNotFoundException",
-                    "Message": "Table MySecretTable does not exist in region us-east-1"
+                    "Message": "Table MySecretTable does not exist in region us-east-1",
                 }
             },
-            operation_name="DescribeTable"
+            operation_name="DescribeTable",
         )
-        
+
         result = _err(error)
         assert result["code"] == "ResourceNotFoundException"
         assert result["message"] == "Resource not found"
@@ -89,18 +85,18 @@ class TestErrorSanitization:
     def test_error_sanitization_development(self, monkeypatch):
         """Test that full errors are shown in development mode."""
         monkeypatch.setenv("DDB_PRODUCTION", "false")
-        from ddb_explorer_mcp.server import _err, ClientError
-        
+        from ddb_explorer_mcp.server import ClientError, _err
+
         error = ClientError(
             error_response={
                 "Error": {
                     "Code": "ResourceNotFoundException",
-                    "Message": "Table MySecretTable does not exist"
+                    "Message": "Table MySecretTable does not exist",
                 }
             },
-            operation_name="DescribeTable"
+            operation_name="DescribeTable",
         )
-        
+
         result = _err(error)
         assert result["code"] == "ResourceNotFoundException"
         assert "MySecretTable" in result["message"]
@@ -108,7 +104,7 @@ class TestErrorSanitization:
     def test_unknown_error_sanitization(self, monkeypatch):
         """Test that unknown errors are generalized in production."""
         monkeypatch.setenv("DDB_PRODUCTION", "true")
-        
+
         error = ValueError("Some internal error with sensitive data")
         result = _err(error)
         assert result["code"] == "RequestError"
@@ -130,7 +126,7 @@ class TestExpressionValidation:
         result = _validate_expression("DROP TABLE users")
         assert result["error"] is True
         assert "prohibited keyword: DROP" in result["message"]
-        
+
         result = _validate_expression("field = 'test' OR DELETE FROM items")
         assert result["error"] is True
         assert "DELETE" in result["message"]
@@ -140,7 +136,7 @@ class TestExpressionValidation:
         result = _validate_expression("field = 'test'; ls -la")
         assert result["error"] is True
         assert "prohibited character: ';'" in result["message"]
-        
+
         result = _validate_expression("field = `whoami`")
         assert result["error"] is True
         assert "prohibited character: '`'" in result["message"]
@@ -219,55 +215,65 @@ class TestCredentialSecurity:
         """Test warning for long-term AWS keys."""
         monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
         monkeypatch.setenv("MCP_TRANSPORT", "stdio")
-        
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             _check_credential_security()
-            
+
             # Check warnings were issued
             security_warnings = [warning for warning in w if "[SECURITY]" in str(warning.message)]
             assert len(security_warnings) >= 2
-            assert any("long-term AWS access key" in str(warning.message) for warning in security_warnings)
-            assert any("Consider using IAM roles" in str(warning.message) for warning in security_warnings)
+            assert any(
+                "long-term AWS access key" in str(warning.message) for warning in security_warnings
+            )
+            assert any(
+                "Consider using IAM roles" in str(warning.message) for warning in security_warnings
+            )
 
     def test_http_mode_warning(self, monkeypatch, capsys):
         """Test warning for HTTP mode without auth."""
         monkeypatch.setenv("MCP_TRANSPORT", "http")
         monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
-        
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             _check_credential_security()
-            
+
             # Check HTTP warning was issued
             security_warnings = [warning for warning in w if "[SECURITY]" in str(warning.message)]
             assert len(security_warnings) >= 1
-            assert any("without built-in authentication" in str(warning.message) for warning in security_warnings)
+            assert any(
+                "without built-in authentication" in str(warning.message)
+                for warning in security_warnings
+            )
 
     def test_tls_warning(self, monkeypatch):
         """Test warning for missing TLS configuration."""
         monkeypatch.setenv("MCP_TRANSPORT", "http")
         monkeypatch.delenv("DDB_TLS_CERT", raising=False)
         monkeypatch.delenv("DDB_REQUIRE_TLS", raising=False)
-        
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             _check_credential_security()
-            
+
             # Check TLS warning was issued
             security_warnings = [warning for warning in w if "[SECURITY]" in str(warning.message)]
-            assert any("No TLS configuration detected" in str(warning.message) for warning in security_warnings)
+            assert any(
+                "No TLS configuration detected" in str(warning.message)
+                for warning in security_warnings
+            )
 
     def test_temporary_credentials_no_warning(self, monkeypatch):
         """Test that temporary credentials don't trigger long-term key warning."""
         monkeypatch.setenv("AWS_ACCESS_KEY_ID", "ASIAIOSFODNN7EXAMPLE")  # ASIA = temporary
         monkeypatch.setenv("AWS_SESSION_TOKEN", "token123")
         monkeypatch.setenv("MCP_TRANSPORT", "stdio")
-        
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             _check_credential_security()
-            
+
             # Should not warn about long-term keys
             assert not any("long-term AWS access key" in str(warning.message) for warning in w)
 
@@ -308,14 +314,14 @@ class TestIntegrationSecurity:
     def test_production_error_sanitization_integration(self, ddb, monkeypatch):
         """Test error sanitization in production mode during actual operations."""
         monkeypatch.setenv("DDB_PRODUCTION", "true")
-        
+
         # Try to query non-existent table
         result = ddb.query(
             table_name="non_existent_secret_table",
             key_condition_expression="pk = :pk",
             expression_attribute_values={":pk": "test"},
         )
-        
+
         assert result["error"] is True
         assert result["message"] == "Resource not found"
         assert "non_existent_secret_table" not in result["message"]
