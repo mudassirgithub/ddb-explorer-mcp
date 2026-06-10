@@ -57,7 +57,9 @@ def _env_int(name: str, default: int) -> int:
     try:
         value = int(raw)
     except ValueError:
-        warnings.warn(f"Invalid integer value for {name}: {raw}, using default: {default}", stacklevel=2)
+        warnings.warn(
+            f"Invalid integer value for {name}: {raw}, using default: {default}", stacklevel=2
+        )
         return default
 
     # Apply security bounds if defined
@@ -67,7 +69,7 @@ def _env_int(name: str, default: int) -> int:
             warnings.warn(
                 f"Security: {name}={value} outside safe bounds [{min_val}, {max_val}], "
                 f"clamping to range",
-                stacklevel=2
+                stacklevel=2,
             )
             return max(min_val, min(value, max_val))
 

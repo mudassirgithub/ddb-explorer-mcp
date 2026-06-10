@@ -1,0 +1,81 @@
+name: Semantic Release
+
+# Determines the next version from Conventional Commits since the last tag,
+# bumps `pyproject.toml` + `CHANGELOG.md`, commits, tags, and pushes. When a
+# release is produced, the existing `release.yml` workflow is invoked to build
+# and publish artifacts.
+#
+# How to write commits so this workflow does what you want:
+#   feat: ...      -> minor bump (0.X.0)
+#   fix: ...       -> patch bump (0.0.X)
+#   perf: ...      -> patch bump
+#   feat!: ...     -> major bump (X.0.0)   (also: any commit with "BREAKING CHANGE:" in the body)
+#   chore/docs/style/refactor/test/ci/build  -> no release
+#
+# Branch protection note: if `main` is protected, allow this workflow's
+# bot identity ("github-actions[bot]") to bypass the rule, OR provide a
+# fine-grained PAT/GitHub App token via the `RELEASE_TOKEN` secret and
+# update the checkout/PSR steps below to use it.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force a bump level (prerelease, patch, minor, major)"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark this release as a prerelease"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: semantic-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Determine next version
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.psr.outputs.released }}
+      version: ${{ steps.psr.outputs.version }}
+      tag: ${{ steps.psr.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
+      - name: Python Semantic Release
+        id: psr
+        uses: python-semantic-release/python-semantic-release@v10.5.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # release.yml owns build + GitHub Release creation; PSR just bumps the
+          # version, updates the changelog, commits, tags, and pushes.
+          build: "false"
+          vcs_release: "false"
+          force: ${{ github.event.inputs.force }}
+          prerelease: ${{ github.event.inputs.prerelease }}
+
+  publish:
+    name: Publish release artifacts
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    secrets: inherit
