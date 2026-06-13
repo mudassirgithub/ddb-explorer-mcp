@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "ddb-explorer-mcp"
 # Baseline 0.0.0; python-semantic-release bumps this to the actual public
 # version on first release based on the Conventional-Commits history.
-version = "0.0.0"
+version = "0.1.0"
 description = "Read-only Model Context Protocol (MCP) server for Amazon DynamoDB — safe exploration, querying, and schema discovery."
 readme = "README.md"
 requires-python = ">=3.10"
