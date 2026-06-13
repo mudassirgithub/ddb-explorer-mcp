@@ -1,0 +1,24 @@
+# Code owners for ddb-explorer-mcp.
+#
+# When a PR touches a path matched here, GitHub auto-requests review from the
+# listed owner(s). Combined with branch protection's "Require review from
+# Code Owners" rule, this is how OSS projects enforce path-based gatekeeping.
+#
+# Syntax: <pattern> <owner> [<owner>...]
+# Docs: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repo.
+*                                @mudassirgithub
+
+# CI / supply-chain configuration is sensitive — review carefully.
+/.github/                        @mudassirgithub
+/Dockerfile                      @mudassirgithub
+/pyproject.toml                  @mudassirgithub
+
+# Read-only invariant lives in the server source. Changes here need extra
+# scrutiny because adding a write-capable tool would silently break the
+# project's core security promise (see CONTRIBUTING.md).
+/src/                            @mudassirgithub
+
+# Security policy itself.
+/SECURITY.md                     @mudassirgithub

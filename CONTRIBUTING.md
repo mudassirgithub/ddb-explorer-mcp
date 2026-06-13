@@ -131,17 +131,24 @@ whose titles don't conform.
 
 ## Release process (maintainers)
 
-Releases are **fully automated**. When a PR with a release-worthy title
-(`feat:`, `fix:`, `perf:`, or any breaking-change marker) is merged into
-`main`, the `Semantic Release` workflow:
+Releases are **fully automated**. Every push to `main` runs the
+`Semantic Release` workflow, which:
 
-1. Computes the next version from the commits since the last `vX.Y.Z` tag.
-2. Updates `version` in `pyproject.toml` and prepends a section to `CHANGELOG.md`.
-3. Commits the bump as `chore(release): vX.Y.Z [skip ci]`.
-4. Pushes a `vX.Y.Z` tag.
-5. Triggers `release.yml` (via `workflow_call`), which builds the wheel + sdist,
-   publishes to PyPI (Trusted Publishing), pushes the multi-arch image to GHCR,
-   and creates the GitHub Release.
+1. Always builds the multi-arch Docker image and pushes `:edge` + `:sha-<short>`
+   to GHCR (so non-release commits still produce a usable container).
+2. Computes the next version from the commits since the last `vX.Y.Z` tag.
+3. **If the merge commit is release-worthy** (`feat:`, `fix:`, `perf:`, or any
+   breaking-change marker):
+   - Updates `version` in `pyproject.toml` and prepends a section to `CHANGELOG.md`.
+   - Commits the bump as `chore(release): vX.Y.Z [skip ci]`.
+   - Pushes a `vX.Y.Z` tag.
+   - Tags the same Docker image with `:X.Y.Z`, `:X.Y`, `:X`, and `:latest`
+     (no second build — the metadata-action just adds tags to the same digest).
+   - Calls `release.yml` (via `workflow_call`) to build the wheel + sdist,
+     publish to PyPI (Trusted Publishing), and create the GitHub Release.
+
+The image is built **once per push to main**. Non-release commits get just
+`:edge` + `:sha-<short>`; release commits get those *plus* the version tags.
 
 You should not need to edit `CHANGELOG.md` or bump the version by hand.
 
@@ -153,12 +160,13 @@ If you need to force a release or a specific bump level, run the
 
 ### Required repo settings
 
-- **Branch protection on `main`:** require PRs, require status checks
-  (`pr-title`, `lint`, `test`, `build`), require linear history,
-  **disable** "Require pull request reviews from Code Owners" *for the
-  `github-actions[bot]` user* OR add it to the bypass list — otherwise PSR
-  cannot push the release commit. (Settings → Branches → Branch protection
-  rules → "Allow specified actors to bypass required pull requests".)
+- **Branch protection on `main`:** require PRs, require linear history, and
+  require the **`All checks green`** status check (single aggregator job in
+  `ci.yml` that succeeds only when `pr-title`, `lint`, `test` (matrix), and
+  `build` all pass — adding/removing matrix entries does not require updating
+  branch protection). Add the `github-actions[bot]` user to the bypass list
+  (Settings → Branches → Branch protection rules → "Allow specified actors to
+  bypass required pull requests") so PSR can push the release commit/tag.
 - **Squash merging only.** Set Settings → General → "Pull Requests" to allow
   *only* "Allow squash merging", and set "Default to PR title" so the squash
   commit message is the validated PR title.
@@ -166,6 +174,40 @@ If you need to force a release or a specific bump level, run the
   permissions" must be **Read and write permissions** so PSR can push the
   release commit and tag.
 - **PyPI Trusted Publisher:** as documented in `release.yml`.
+
+## Dependency updates
+
+This repo uses [Renovate](https://docs.renovatebot.com/) in **issue-only mode**.
+A single auto-maintained issue titled "Dependency Dashboard" lists every
+detected dep (Python, Docker base, GitHub Actions) and the newer versions
+available. Renovate **never** opens pull requests — the dashboard is advisory.
+
+To bump something:
+
+```bash
+# Python deps in pyproject.toml
+uv lock --upgrade --package boto3
+uv sync --extra dev
+
+# Docker base in Dockerfile
+# edit the FROM line, then rebuild
+
+# GitHub Actions
+# look up the new commit SHA + version tag, then update both the SHA
+# and the trailing `# vX.Y.Z` comment in the workflow file
+```
+
+Then commit with a `chore(deps): …` title — this prefix does **not** trigger
+a release (correct: dep bumps aren't user-visible behavior changes by
+themselves).
+
+CVE-driven security PRs are handled separately by **GitHub's native
+Dependabot security updates** (Settings → Code security & analysis →
+Dependabot security updates). Those *do* open PRs, but only when a real
+advisory drops — typically a handful per year.
+
+The Dependency Dashboard is a long-lived issue; do not close it. Renovate
+re-creates it if you do.
 
 ## Reporting security issues
 

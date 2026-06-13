@@ -1,7 +1,14 @@
 name: Publish npm wrapper
 
 # Publishes the thin npm wrapper (npm/package.json) to npmjs.com.
-# Triggered alongside the main release workflow when a semver tag is pushed.
+#
+# Triggered three ways:
+#   1. `push: tags: v*.*.*` — when a tag is pushed by a *human* via git-push.
+#      Note: tags pushed by python-semantic-release using GITHUB_TOKEN do NOT
+#      trigger this (GitHub recursion-protection); for automated releases,
+#      `semantic-release.yml` calls this workflow via workflow_call instead.
+#   2. `workflow_dispatch` — manual rerun for a specific tag.
+#   3. `workflow_call` — invoked by `semantic-release.yml`'s publish-npm job.
 #
 # Prerequisites:
 #   1. Create an npm access token (Automation type) for @mudassirgithub scope.
@@ -12,6 +19,17 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.2.0). Must already exist."
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.2.0). Must already exist."
+        required: true
+        type: string
 
 concurrency:
   group: npm-publish-${{ github.ref }}
@@ -28,18 +46,19 @@ jobs:
       run:
         working-directory: npm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
       - name: Sync version from tag
         run: |
-          ref="${GITHUB_REF_NAME}"
+          ref="${{ inputs.tag || github.ref_name }}"
           version="${ref#v}"
           npm version "${version}" --no-git-tag-version --allow-same-version
 

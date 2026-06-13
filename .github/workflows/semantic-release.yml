@@ -1,21 +1,27 @@
 name: Semantic Release
 
-# Determines the next version from Conventional Commits since the last tag,
-# bumps `pyproject.toml` + `CHANGELOG.md`, commits, tags, and pushes. When a
-# release is produced, the existing `release.yml` workflow is invoked to build
-# and publish artifacts.
+# Owns *everything* that happens on a push to main:
+#   - `release` job: runs python-semantic-release. If the merge commit is
+#     release-worthy (feat/fix/perf/breaking), PSR bumps `pyproject.toml`
+#     + `CHANGELOG.md` + `server.json`, commits, and pushes a `vX.Y.Z` tag.
+#   - `docker` job: builds the image *once* per push and pushes:
+#         - always: `:edge`, `:sha-<short>`
+#         - if released: also `:X.Y.Z`, `:X.Y`, `:X`, `:latest`
+#   - `publish` job: when released, calls `release.yml` (workflow_call) to
+#     publish the wheel/sdist to PyPI and create the GitHub Release.
+#   - `publish-npm` job: when released, calls `npm-publish.yml`
+#     (workflow_call) to publish the thin npm wrapper.
 #
 # How to write commits so this workflow does what you want:
 #   feat: ...      -> minor bump (0.X.0)
 #   fix: ...       -> patch bump (0.0.X)
 #   perf: ...      -> patch bump
 #   feat!: ...     -> major bump (X.0.0)   (also: any commit with "BREAKING CHANGE:" in the body)
-#   chore/docs/style/refactor/test/ci/build  -> no release
+#   chore/docs/style/refactor/test/ci/build  -> no version bump (still gets :edge)
 #
-# Branch protection note: if `main` is protected, allow this workflow's
-# bot identity ("github-actions[bot]") to bypass the rule, OR provide a
-# fine-grained PAT/GitHub App token via the `RELEASE_TOKEN` secret and
-# update the checkout/PSR steps below to use it.
+# Branch protection note: if `main` is protected, allow the
+# `github-actions[bot]` identity to bypass required PRs/reviews so PSR can
+# push the release commit and tag.
 
 on:
   push:
@@ -37,19 +43,23 @@ concurrency:
   group: semantic-release
   cancel-in-progress: false
 
+# Default least-privilege token. Jobs escalate explicitly when needed.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     name: Determine next version
     runs-on: ubuntu-latest
+    permissions:
+      # PSR pushes the chore(release) commit and the vX.Y.Z tag.
+      contents: write
     outputs:
       released: ${{ steps.psr.outputs.released }}
       version: ${{ steps.psr.outputs.version }}
       tag: ${{ steps.psr.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -57,18 +67,124 @@ jobs:
 
       - name: Python Semantic Release
         id: psr
-        uses: python-semantic-release/python-semantic-release@v10.5.3
+        uses: python-semantic-release/python-semantic-release@350c48fcb3ffcdfd2e0a235206bc2ecea6b69df0 # v10.5.3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # release.yml owns build + GitHub Release creation; PSR just bumps the
-          # version, updates the changelog, commits, tags, and pushes.
+          # release.yml owns wheel build + GitHub Release creation; the docker
+          # job below owns image build. PSR just bumps + tags + pushes.
           build: "false"
           vcs_release: "false"
           force: ${{ github.event.inputs.force }}
           prerelease: ${{ github.event.inputs.prerelease }}
 
+  docker:
+    name: Build & push image (multi-arch)
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # GHCR push
+      id-token: write       # OIDC for sigstore-backed attestation
+      attestations: write   # actions/attest-build-provenance
+    steps:
+      # When PSR cut a release, build from the PSR commit (which has the
+      # bumped pyproject.toml). Otherwise build from the current main HEAD.
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ needs.release.outputs.tag || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # OCI annotations (image.revision in particular) must match the SHA of
+      # the source that was actually built. When we check out a tag, that's
+      # the PSR commit's SHA, not github.sha (which is the merge commit).
+      - name: Resolve build SHA
+        id: build_sha
+        run: |
+          full=$(git rev-parse HEAD)
+          short=$(git rev-parse --short=7 HEAD)
+          {
+            echo "sha=${full}"
+            echo "short=${short}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compute version components
+        id: ver
+        if: needs.release.outputs.released == 'true'
+        run: |
+          version="${{ needs.release.outputs.version }}"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          {
+            echo "major=${major}"
+            echo "minor=${minor}"
+            echo "major_minor=${major}.${minor}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=edge
+            type=raw,value=sha-${{ steps.build_sha.outputs.short }}
+            type=raw,value=${{ needs.release.outputs.version }},enable=${{ needs.release.outputs.released == 'true' }}
+            type=raw,value=${{ steps.ver.outputs.major_minor }},enable=${{ needs.release.outputs.released == 'true' }}
+            type=raw,value=${{ steps.ver.outputs.major }},enable=${{ needs.release.outputs.released == 'true' }}
+            type=raw,value=latest,enable=${{ needs.release.outputs.released == 'true' }}
+          labels: |
+            org.opencontainers.image.title=ddb-explorer-mcp
+            org.opencontainers.image.description=Read-only MCP server for Amazon DynamoDB
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.build_sha.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.release.outputs.version || format('0.0.0-edge.{0}', steps.build_sha.outputs.short) }}
+
+      - name: Build & push (multi-arch)
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      # Signed in-toto attestation of the build, verifiable via:
+      #   gh attestation verify oci://ghcr.io/<owner>/<repo>:<tag> \
+      #       --owner <owner>
+      # SLSA Level 3 marker.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
   publish:
-    name: Publish release artifacts
+    name: Publish to PyPI + GitHub Release
     needs: release
     if: needs.release.outputs.released == 'true'
     uses: ./.github/workflows/release.yml
@@ -76,6 +192,21 @@ jobs:
       tag: ${{ needs.release.outputs.tag }}
     permissions:
       contents: write
-      packages: write
       id-token: write
+      attestations: write
+    secrets: inherit
+
+  publish-npm:
+    name: Publish npm wrapper
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    # PSR pushes the tag with GITHUB_TOKEN, which (by GitHub's recursion
+    # protection) does NOT fire `npm-publish.yml`'s `on: push: tags:` trigger.
+    # We chain it explicitly via workflow_call so the npm wrapper stays in
+    # lockstep with PyPI + Docker on every automated release.
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    permissions:
+      contents: read
     secrets: inherit

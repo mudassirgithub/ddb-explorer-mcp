@@ -1,0 +1,26 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "UTC",
+  "schedule": ["before 4am on monday"],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Dependency Dashboard",
+  "dependencyDashboardHeader": "This issue is auto-maintained by [Renovate](https://docs.renovatebot.com/) in **issue-only mode** for `ddb-explorer-mcp`.\n\n- Renovate **never** opens pull requests here. The lists below are advisory only.\n- The dashboard refreshes weekly (Monday before 04:00 UTC).\n- To bump a dependency, do it manually:\n  - Python deps in `pyproject.toml` → `uv lock --upgrade --package <name>` (or just edit and run `uv sync`).\n  - Docker base in `Dockerfile` → edit the `FROM` line and rebuild.\n  - GitHub Actions in `.github/workflows/*.yml` → look up the new commit SHA + version comment.\n- CVE-driven security PRs are **not** Renovate's job here — they come from GitHub's native Dependabot security updates (Settings → Code security → Dependabot security updates).\n\nTo flip Renovate into PR mode later, remove `prHourlyLimit` and `prConcurrentLimit` in `renovate.json`.",
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
+  "osvVulnerabilityAlerts": true,
+  "lockFileMaintenance": {
+    "enabled": false
+  },
+  "configMigration": true,
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/.venv/**",
+    "**/dist/**",
+    "**/.pytest_cache/**",
+    "**/.ruff_cache/**"
+  ]
+}

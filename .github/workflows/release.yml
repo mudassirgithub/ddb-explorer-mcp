@@ -1,10 +1,13 @@
 name: Release
 
-# Publishes a release when a semver tag is pushed (e.g. v0.2.0):
-#   - Builds wheel + sdist with uv
-#   - Publishes to PyPI via Trusted Publishing (OIDC — no tokens required)
-#   - Builds multi-arch Docker image (linux/amd64, linux/arm64), pushes to GHCR
-#   - Creates a GitHub Release with auto-generated notes and attaches artifacts
+# Publishes wheel/sdist to PyPI and creates a GitHub Release. Triggered on a
+# semver tag push (e.g. v0.2.0), via manual dispatch, or as a reusable
+# `workflow_call` (used by `semantic-release.yml`).
+#
+# Note: Docker image publishing is *not* in this workflow. It lives in
+# `semantic-release.yml`'s `docker` job, which builds the image once per
+# push to main and applies version tags only when a release was cut. This
+# avoids building Docker twice for the same commit.
 #
 # Prerequisites (one-time repo setup):
 #   1. On PyPI, configure Trusted Publisher for project `ddb-explorer-mcp`:
@@ -14,8 +17,6 @@ name: Release
 #        environment: pypi
 #      https://docs.pypi.org/trusted-publishers/
 #   2. Create a GitHub Environment named `pypi` (used by the publish job).
-#   3. Enable GHCR write access for Actions (Settings → Actions → General →
-#      Workflow permissions: "Read and write permissions").
 
 on:
   push:
@@ -38,6 +39,7 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Default least-privilege token. Jobs escalate explicitly when needed.
 permissions:
   contents: read
 
@@ -45,15 +47,20 @@ jobs:
   build:
     name: Build wheel + sdist
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write       # OIDC for build-provenance attestation
+      attestations: write   # actions/attest-build-provenance
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
         with:
           enable-cache: true
 
@@ -80,8 +87,15 @@ jobs:
       - name: Build
         run: uv build
 
+      # SLSA-Level-3 provenance for the wheel and sdist. Verifiable via:
+      #   gh attestation verify dist/<file> --owner <owner>
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: "dist/*"
+
       - name: Upload dist/
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/
@@ -95,91 +109,44 @@ jobs:
       name: pypi
       url: https://pypi.org/p/ddb-explorer-mcp
     permissions:
-      id-token: write  # required for Trusted Publishing (OIDC)
+      id-token: write       # Trusted Publishing (OIDC)
+      attestations: write   # PEP 740 PyPI attestations
     steps:
       - name: Download dist/
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist/
 
+      # `attestations: true` makes gh-action-pypi-publish generate PEP 740
+      # attestations and upload them alongside the artifacts. PyPI then
+      # displays the verified-publish badge on the project page.
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           print-hash: true
-
-  publish-docker:
-    name: Publish Docker image to GHCR
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest
-          labels: |
-            org.opencontainers.image.title=ddb-explorer-mcp
-            org.opencontainers.image.description=Read-only MCP server for Amazon DynamoDB
-            org.opencontainers.image.licenses=Apache-2.0
-
-      - name: Build & push (multi-arch)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+          attestations: true
 
   github-release:
     name: Create GitHub Release
-    needs: [build, publish-pypi, publish-docker]
+    needs: [build, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Download dist/
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist/
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: ${{ inputs.tag || github.ref_name }}

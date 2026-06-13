@@ -1,0 +1,57 @@
+name: CodeQL
+
+# Static analysis (SAST) for Python source. Runs on:
+#   - PRs touching Python or this workflow file
+#   - Pushes to main
+#   - A weekly schedule (catches issues from new CodeQL rules + transitive deps)
+#
+# Findings appear under Security → Code scanning alerts in the repo.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/codeql.yml"
+  schedule:
+    # Mondays 06:17 UTC. Random minute to spread load on GitHub-hosted runners.
+    - cron: "17 6 * * 1"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write   # required to upload SARIF results
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@3599b3baa15b485a2e49ef411a7a4bb2452e7f93 # v3.30.5
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@3599b3baa15b485a2e49ef411a7a4bb2452e7f93 # v3.30.5
+        with:
+          category: "/language:${{ matrix.language }}"

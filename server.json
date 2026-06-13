@@ -6,12 +6,12 @@
     "url": "https://github.com/mudassirgithub/ddb-explorer-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.0.0",
   "packages": [
     {
       "registry_name": "pypi",
       "name": "ddb-explorer-mcp",
-      "version": "0.1.0",
+      "version": "0.0.0",
       "runtime_hint": "uvx",
       "package_arguments": [],
       "environment_variables": [
@@ -72,7 +72,7 @@
     {
       "registry_name": "docker",
       "name": "ghcr.io/mudassirgithub/ddb-explorer-mcp",
-      "version": "0.1.0",
+      "version": "0.0.0",
       "runtime_hint": "docker",
       "package_arguments": [
         {
