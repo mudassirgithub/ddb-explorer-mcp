@@ -51,14 +51,9 @@ the new version on the next release.
 ### Security / supply chain
 
 - **All GitHub Actions SHA-pinned** with version comments across every
-  workflow (per GitHub's hardening guide and OpenSSF Scorecard).
+  workflow (per GitHub's hardening guide).
 - **Default `permissions: contents: read`** on every workflow, with per-job
   escalation. `persist-credentials: false` on read-only checkouts.
-- **CodeQL** (Python, `security-and-quality` query suite) on PRs touching
-  source + weekly schedule.
-- **OpenSSF Scorecard** running weekly (results private, in repo Security tab).
 - **`CODEOWNERS`** routing review for `.github/`, `Dockerfile`, `pyproject.toml`,
   `src/`, and `SECURITY.md`.
-- **`Renovate`** in issue-only mode: a single auto-maintained "Dependency
-  Dashboard" issue lists all available updates without ever opening PRs.
-  CVE-driven security PRs come from GitHub's native Dependabot security updates.
+- **GitHub native Dependabot security updates** for CVE-driven dependency PRs.

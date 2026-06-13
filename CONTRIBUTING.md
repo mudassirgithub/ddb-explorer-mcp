@@ -89,9 +89,10 @@ CI runs both on every PR.
 ## Commit messages (Conventional Commits)
 
 This repo uses [`python-semantic-release`](https://python-semantic-release.readthedocs.io/)
-to automate versioning. **PR titles must follow Conventional Commits** because
+to automate versioning. **PR titles should follow Conventional Commits** because
 PRs are squash-merged — the PR title becomes the single commit on `main` and
-that commit determines the next version.
+that commit determines the next version. There is no automated gate; the
+maintainer rewords titles before squash-merging when needed.
 
 | PR title prefix | Effect on `main` |
 | --- | --- |
@@ -115,9 +116,6 @@ feat: switch default region resolution
 
 BREAKING CHANGE: AWS_REGION is now required when no profile is set.
 ```
-
-The `pr-title` CI check (`amannn/action-semantic-pull-request`) blocks PRs
-whose titles don't conform.
 
 ## Coding style
 
@@ -162,9 +160,9 @@ If you need to force a release or a specific bump level, run the
 
 - **Branch protection on `main`:** require PRs, require linear history, and
   require the **`All checks green`** status check (single aggregator job in
-  `ci.yml` that succeeds only when `pr-title`, `lint`, `test` (matrix), and
-  `build` all pass — adding/removing matrix entries does not require updating
-  branch protection). Add the `github-actions[bot]` user to the bypass list
+  `ci.yml` that succeeds only when `lint`, `test` (matrix), and `build` all
+  pass — adding/removing matrix entries does not require updating branch
+  protection). Add the `github-actions[bot]` user to the bypass list
   (Settings → Branches → Branch protection rules → "Allow specified actors to
   bypass required pull requests") so PSR can push the release commit/tag.
 - **Squash merging only.** Set Settings → General → "Pull Requests" to allow
@@ -177,12 +175,13 @@ If you need to force a release or a specific bump level, run the
 
 ## Dependency updates
 
-This repo uses [Renovate](https://docs.renovatebot.com/) in **issue-only mode**.
-A single auto-maintained issue titled "Dependency Dashboard" lists every
-detected dep (Python, Docker base, GitHub Actions) and the newer versions
-available. Renovate **never** opens pull requests — the dashboard is advisory.
+Routine version bumps are **manual** in this repo. CVE-driven security PRs
+come from **GitHub's native Dependabot security updates**
+(Settings → Code security & analysis → Dependabot security updates) — those
+auto-open PRs, but only when a real advisory drops (typically a handful per
+year).
 
-To bump something:
+To bump a dependency manually:
 
 ```bash
 # Python deps in pyproject.toml
@@ -197,17 +196,9 @@ uv sync --extra dev
 # and the trailing `# vX.Y.Z` comment in the workflow file
 ```
 
-Then commit with a `chore(deps): …` title — this prefix does **not** trigger
-a release (correct: dep bumps aren't user-visible behavior changes by
+Commit with a `chore(deps): …` title — this prefix does **not** trigger a
+release (correct: dep bumps aren't user-visible behavior changes by
 themselves).
-
-CVE-driven security PRs are handled separately by **GitHub's native
-Dependabot security updates** (Settings → Code security & analysis →
-Dependabot security updates). Those *do* open PRs, but only when a real
-advisory drops — typically a handful per year.
-
-The Dependency Dashboard is a long-lived issue; do not close it. Renovate
-re-creates it if you do.
 
 ## Reporting security issues
 
