@@ -42,6 +42,9 @@ jobs:
   publish:
     name: Publish to npm
     runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/ddb-explorer-mcp
     defaults:
       run:
         working-directory: npm
