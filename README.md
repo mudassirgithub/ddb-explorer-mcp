@@ -25,7 +25,7 @@ Add `ddb-explorer-mcp` to your IDE in one click:
 &nbsp;&nbsp;
 [<img src="https://img.shields.io/badge/VS_Code-Install_MCP-007ACC?logo=visual-studio-code&logoColor=white" alt="Install in VS Code" height="32">](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%7B%22name%22%3A%22ddb-explorer%22%2C%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22ddb-explorer-mcp%22%5D%2C%22env%22%3A%7B%22AWS_REGION%22%3A%22us-east-2%22%7D%7D)
 &nbsp;&nbsp;
-[<img src="https://img.shields.io/badge/Smithery-Install-orange?logo=data:image/svg+xml;base64,..." alt="Install via Smithery" height="32">](https://smithery.ai/server/ddb-explorer-mcp)
+[<img src="https://img.shields.io/badge/Smithery-Install-orange" alt="Install via Smithery" height="32">](https://smithery.ai/server/ddb-explorer-mcp)
 
 Or install from the command line:
 
@@ -380,7 +380,7 @@ many remote clients; the server holds the AWS credentials, clients don't.
 Internet ──► ALB (TLS + OIDC/JWT)
              │
              └─► ECS Fargate task
-                   Image: ghcr.io/mudassirgithub/ddb-explorer-mcp:vX.Y.Z
+                   Image: ghcr.io/mudassirgithub/ddb-explorer-mcp:latest
                    Env:   MCP_TRANSPORT=http, MCP_HOST=0.0.0.0
                    IAM:   task role with read-only DynamoDB policy
 ```

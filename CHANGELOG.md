@@ -12,6 +12,27 @@ the new version on the next release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **README**: corrected broken Smithery one-click install badge logo URL
+  (was a placeholder `data:image/svg+xml;base64,...`).
+- **README**: corrected Docker image tag example to `:0.1.0` (we don't
+  prefix tags with `v`).
+- **CHANGELOG**: structured the `0.1.0` release section per Keep a Changelog.
+
+### Changed
+
+- **Release pipeline:** inlined the PyPI publish + GitHub Release jobs
+  directly into `semantic-release.yml` and removed the reusable
+  `release.yml`. This eliminates the `workflow_call` indirection that
+  PyPI's Trusted Publisher matcher does not officially support.
+- **PSR config:** added `npm/package.json:version` to `version_variables`
+  so PSR keeps it in lockstep with `pyproject.toml` and `server.json`.
+
+## [0.1.0] - 2026-06-13
+
+First public release.
+
 ### Added
 
 - Eight read-only DynamoDB tools: `list_tables`, `describe_table`,
@@ -57,3 +78,6 @@ the new version on the next release.
 - **`CODEOWNERS`** routing review for `.github/`, `Dockerfile`, `pyproject.toml`,
   `src/`, and `SECURITY.md`.
 - **GitHub native Dependabot security updates** for CVE-driven dependency PRs.
+
+[Unreleased]: https://github.com/mudassirgithub/ddb-explorer-mcp/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mudassirgithub/ddb-explorer-mcp/releases/tag/v0.1.0

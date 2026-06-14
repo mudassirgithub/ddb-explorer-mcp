@@ -3,14 +3,36 @@ name: Semantic Release
 # Owns *everything* that happens on a push to main:
 #   - `release` job: runs python-semantic-release. If the merge commit is
 #     release-worthy (feat/fix/perf/breaking), PSR bumps `pyproject.toml`
-#     + `CHANGELOG.md` + `server.json`, commits, and pushes a `vX.Y.Z` tag.
+#     + `CHANGELOG.md` + `server.json` + `npm/package.json`, commits, and
+#     pushes a `vX.Y.Z` tag.
 #   - `docker` job: builds the image *once* per push and pushes:
 #         - always: `:edge`, `:sha-<short>`
 #         - if released: also `:X.Y.Z`, `:X.Y`, `:X`, `:latest`
-#   - `publish` job: when released, calls `release.yml` (workflow_call) to
-#     publish the wheel/sdist to PyPI and create the GitHub Release.
+#   - `build-wheel` job: when released, builds the wheel + sdist and signs
+#     SLSA-Level-3 build provenance attestations.
+#   - `publish-pypi` job: when released, publishes the wheel/sdist to PyPI
+#     via Trusted Publishing (OIDC, no token) with PEP 740 attestations.
+#   - `github-release` job: when released, creates the GitHub Release with
+#     auto-generated notes and the dist artifacts attached.
 #   - `publish-npm` job: when released, calls `npm-publish.yml`
 #     (workflow_call) to publish the thin npm wrapper.
+#
+# PyPI publish steps are inlined directly here (rather than factored into a
+# reusable workflow) because PyPI's Trusted Publisher matcher does not fully
+# support `workflow_call` indirection — the OIDC token's Build Config URI
+# always reflects the entry-point workflow, so the registered Trusted
+# Publisher must point at this file. See:
+#   https://docs.pypi.org/trusted-publishers/troubleshooting/#reusable-workflows-on-github
+#   https://github.com/pypa/gh-action-pypi-publish/issues/166
+#
+# Trusted Publisher prerequisites (one-time repo setup):
+#   1. On PyPI, configure Trusted Publisher for project `ddb-explorer-mcp`:
+#        owner:        mudassirgithub
+#        repo:         ddb-explorer-mcp
+#        workflow:     semantic-release.yml      <- this file
+#        environment:  pypi
+#      https://docs.pypi.org/trusted-publishers/
+#   2. Create a GitHub Environment named `pypi` (used by `publish-pypi`).
 #
 # How to write commits so this workflow does what you want:
 #   feat: ...      -> minor bump (0.X.0)
@@ -70,8 +92,9 @@ jobs:
         uses: python-semantic-release/python-semantic-release@350c48fcb3ffcdfd2e0a235206bc2ecea6b69df0 # v10.5.3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # release.yml owns wheel build + GitHub Release creation; the docker
-          # job below owns image build. PSR just bumps + tags + pushes.
+          # build-wheel + publish-pypi + github-release jobs below own wheel
+          # build, PyPI publish, and GitHub Release creation; the docker job
+          # owns image build. PSR just bumps + tags + pushes.
           build: "false"
           vcs_release: "false"
           force: ${{ github.event.inputs.force }}
@@ -183,18 +206,114 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-  publish:
-    name: Publish to PyPI + GitHub Release
+  build-wheel:
+    name: Build wheel + sdist
     needs: release
     if: needs.release.outputs.released == 'true'
-    uses: ./.github/workflows/release.yml
-    with:
-      tag: ${{ needs.release.outputs.tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write       # OIDC for build-provenance attestation
+      attestations: write   # actions/attest-build-provenance
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Verify pyproject version matches tag
+        run: |
+          ref="${{ needs.release.outputs.tag }}"
+          expected="${ref#v}"
+          actual=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::Tag version ($expected) does not match pyproject.toml version ($actual)"
+            exit 1
+          fi
+
+      - name: Build
+        run: uv build
+
+      # SLSA-Level-3 provenance for the wheel and sdist. Verifiable via:
+      #   gh attestation verify dist/<file> --owner <owner>
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: "dist/*"
+
+      - name: Upload dist/
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [release, build-wheel]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ddb-explorer-mcp
+    permissions:
+      id-token: write       # Trusted Publishing (OIDC)
+      attestations: write   # PEP 740 PyPI attestations
+    steps:
+      - name: Download dist/
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      # `attestations: true` makes gh-action-pypi-publish generate PEP 740
+      # attestations and upload them alongside the artifacts. PyPI then
+      # displays the verified-publish badge on the project page.
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          print-hash: true
+          attestations: true
+
+  github-release:
+    name: Create GitHub Release
+    needs: [release, build-wheel, publish-pypi]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
-      attestations: write
-    secrets: inherit
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download dist/
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          name: ${{ needs.release.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(needs.release.outputs.tag, '-rc') || contains(needs.release.outputs.tag, '-beta') || contains(needs.release.outputs.tag, '-alpha') }}
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
 
   publish-npm:
     name: Publish npm wrapper

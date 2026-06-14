@@ -137,13 +137,16 @@ Releases are **fully automated**. Every push to `main` runs the
 2. Computes the next version from the commits since the last `vX.Y.Z` tag.
 3. **If the merge commit is release-worthy** (`feat:`, `fix:`, `perf:`, or any
    breaking-change marker):
-   - Updates `version` in `pyproject.toml` and prepends a section to `CHANGELOG.md`.
+   - Updates `version` in `pyproject.toml`, `server.json`, and
+     `npm/package.json`, and prepends a section to `CHANGELOG.md`.
    - Commits the bump as `chore(release): vX.Y.Z [skip ci]`.
    - Pushes a `vX.Y.Z` tag.
    - Tags the same Docker image with `:X.Y.Z`, `:X.Y`, `:X`, and `:latest`
      (no second build — the metadata-action just adds tags to the same digest).
-   - Calls `release.yml` (via `workflow_call`) to build the wheel + sdist,
-     publish to PyPI (Trusted Publishing), and create the GitHub Release.
+   - Builds the wheel + sdist, signs SLSA-Level-3 build provenance,
+     publishes to PyPI via Trusted Publishing (OIDC, no token) with PEP 740
+     attestations, and creates the GitHub Release with auto-generated notes.
+   - Publishes the npm wrapper via `npm-publish.yml` (workflow_call).
 
 The image is built **once per push to main**. Non-release commits get just
 `:edge` + `:sha-<short>`; release commits get those *plus* the version tags.
@@ -171,7 +174,9 @@ If you need to force a release or a specific bump level, run the
 - **Workflow permissions:** Settings → Actions → General → "Workflow
   permissions" must be **Read and write permissions** so PSR can push the
   release commit and tag.
-- **PyPI Trusted Publisher:** as documented in `release.yml`.
+- **PyPI Trusted Publisher:** configure on pypi.org with workflow
+  `semantic-release.yml`, environment `pypi`. See the header comment in
+  `.github/workflows/semantic-release.yml` for the full setup.
 
 ## Dependency updates
 
